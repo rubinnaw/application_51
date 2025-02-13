@@ -4,15 +4,11 @@ from utils.cache import ChatCache
 from api.openrouter import OpenRouterClient
 
 class AuthUI:
-    """
-    Класс для управления интерфейсом аутентификации.
-    """
     def __init__(self, page: ft.Page, on_auth_success):
         self.page = page
         self.cache = ChatCache()
         self.on_auth_success = on_auth_success
 
-        # Стили для компонентов
         self.input_style = {
             "width": 300,
             "height": 50,
@@ -22,19 +18,15 @@ class AuthUI:
         }
 
     def generate_pin(self):
-        """Генерация 4-значного PIN-кода"""
         return ''.join([str(random.randint(0, 9)) for _ in range(4)])
 
     async def check_api_key(self, api_key: str):
-        """Проверка API ключа и его баланса"""
         try:
-            client = OpenRouterClient()
-            client.api_key = api_key
+            client = OpenRouterClient(api_key=api_key)
             balance = client.get_balance()
             if balance == "Ошибка":
                 return False, "Неверный API ключ"
             
-            # Извлекаем числовое значение баланса
             balance_value = float(balance.lstrip('$'))
             if balance_value <= 0:
                 return False, "Недостаточно средств на балансе"
@@ -44,16 +36,15 @@ class AuthUI:
             return False, str(e)
 
     def show_error(self, message: str):
-        """Отображение ошибки"""
         self.page.show_snack_bar(
             ft.SnackBar(
                 content=ft.Text(message, color=ft.colors.RED_500),
                 bgcolor=ft.colors.GREY_900
             )
         )
+        self.page.update()
 
     async def handle_first_login(self, e):
-        """Обработка первого входа"""
         api_key = self.api_key_input.value
         telegram_id = self.telegram_id_input.value
 
@@ -61,19 +52,17 @@ class AuthUI:
             self.show_error("Заполните все поля")
             return
 
-        # Проверка API ключа
         is_valid, error = await self.check_api_key(api_key)
         if not is_valid:
             self.show_error(error)
             return
 
-        # Генерация PIN
         pin = self.generate_pin()
-        
-        # Сохранение данных
         self.cache.save_auth_data(api_key, pin, telegram_id)
         
-        # Показ PIN пользователю
+        async def handle_ok_click(e):
+            await self.close_dialog_and_proceed(dialog)
+            
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Ваш PIN-код"),
@@ -82,7 +71,7 @@ class AuthUI:
                 ft.Text(pin, size=30, weight=ft.FontWeight.BOLD),
             ]),
             actions=[
-                ft.TextButton("OK", on_click=lambda _: self.close_dialog_and_proceed(dialog)),
+                ft.TextButton("OK", on_click=handle_ok_click),
             ],
         )
 
@@ -90,31 +79,30 @@ class AuthUI:
         dialog.open = True
         self.page.update()
 
-    def close_dialog_and_proceed(self, dialog):
-        """Закрытие диалога и переход к основному приложению"""
+    async def close_dialog_and_proceed(self, dialog):
+        import asyncio
         dialog.open = False
-        self.page.update()
-        self.on_auth_success()
+        await self.page.update_async()
+        # Добавляем небольшую задержку перед открытием основного окна
+        await asyncio.sleep(0.5)  # 500ms = 0.5s
+        await self.on_auth_success()
 
     async def handle_pin_login(self, e):
-        """Обработка входа по PIN"""
         pin = self.pin_input.value
         if not pin:
             self.show_error("Введите PIN")
             return
 
         if self.cache.verify_pin(pin):
-            self.on_auth_success()
+            await self.on_auth_success()
         else:
             self.show_error("Неверный PIN")
 
     async def handle_reset(self, e):
-        """Обработка сброса ключа"""
         self.cache.clear_auth_data()
-        self.show_first_login()
+        await self.show_first_login()
 
-    def show_first_login(self):
-        """Отображение формы первого входа"""
+    async def show_first_login(self):
         self.api_key_input = ft.TextField(
             label="API ключ OpenRouter",
             **self.input_style
@@ -144,9 +132,9 @@ class AuthUI:
                 spacing=20
             )
         )
+        self.page.update()
 
-    def show_pin_login(self):
-        """Отображение формы входа по PIN"""
+    async def show_pin_login(self):
         self.pin_input = ft.TextField(
             label="Введите PIN",
             password=True,
@@ -182,11 +170,11 @@ class AuthUI:
                 spacing=20
             )
         )
+        self.page.update()
 
-    def show_auth(self):
-        """Отображение нужной формы входа"""
+    async def show_auth(self):
         auth_data = self.cache.get_auth_data()
         if auth_data is None:
-            self.show_first_login()
+            await self.show_first_login()
         else:
-            self.show_pin_login()
+            await self.show_pin_login()

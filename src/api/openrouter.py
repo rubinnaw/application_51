@@ -39,30 +39,26 @@ class OpenRouterClient:
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         self.base_url = os.getenv("BASE_URL", "https://openrouter.ai/api/v1")
 
-        # Проверка наличия API ключа
-        if not self.api_key:
-            # Логирование критической ошибки
-            self.logger.error("OpenRouter API key not provided")
-            # Выбрасывание исключения с понятным сообщением
-            raise ValueError("OpenRouter API key not provided")
-
         # Настройка заголовков для всех API запросов
         self.update_headers()
 
         # Логирование успешной инициализации клиента
         self.logger.info("OpenRouterClient initialized successfully")
 
-        # Загрузка списка доступных моделей при инициализации
-        self.available_models = self.get_models()
+    def validate_api_key(self):
+        """Проверка наличия API ключа"""
+        if not self.api_key:
+            self.logger.error("OpenRouter API key not provided")
+            raise ValueError("OpenRouter API key not provided")
 
     def update_headers(self):
         """Обновление заголовков запросов с текущим API ключом"""
         self.headers = {
-            "Authorization": f"Bearer {self.api_key}",  # Токен для авторизации запросов
+            "Authorization": f"Bearer {self.api_key}" if self.api_key else "",  # Токен для авторизации запросов
             "Content-Type": "application/json"          # Указание формата данных
         }
 
-    def get_models(self):
+    def get_models(self, force_refresh=False):
         """
         Получение списка доступных языковых моделей.
 
@@ -73,10 +69,16 @@ class OpenRouterClient:
         Note:
             При ошибке запроса возвращает список базовых моделей по умолчанию
         """
-        # Логирование начала запроса списка моделей
-        self.logger.debug("Fetching available models")
-
         try:
+            self.validate_api_key()
+            
+            # Используем кэшированные модели, если они есть и не требуется обновление
+            if hasattr(self, 'available_models') and not force_refresh:
+                return self.available_models
+
+            # Логирование начала запроса списка моделей
+            self.logger.debug("Fetching available models")
+
             # Выполнение GET запроса к API для получения списка моделей
             response = requests.get(
                 f"{self.base_url}/models",
@@ -107,7 +109,7 @@ class OpenRouterClient:
             self.logger.info(f"Retrieved {len(models_default)} models with Error: {e}")
             return models_default
 
-    def send_message(self, message: str, model: str):
+    def send_message(self, message: str, model: str = None):
         """
         Отправка сообщения выбранной языковой модели.
 
@@ -118,6 +120,14 @@ class OpenRouterClient:
         Returns:
             dict: Ответ от API, содержащий либо ответ модели, либо информацию об ошибке
         """
+        self.validate_api_key()
+
+        # Если модель не указана, загружаем список моделей и берем первую доступную
+        if not model:
+            if not hasattr(self, 'available_models'):
+                self.available_models = self.get_models()
+            model = self.available_models[0]['id'] if self.available_models else "gpt-3.5-turbo"
+
         # Логирование отправки сообщения
         self.logger.debug(f"Sending message to model: {model}")
 
@@ -155,7 +165,7 @@ class OpenRouterClient:
             # Возврат сообщения об ошибке в формате ответа API
             return {"error": str(e)}       
 
-    def get_balance(self):
+    def get_balance(self, validate=True):
         """
         Получение текущего баланса аккаунта.
 
@@ -163,6 +173,8 @@ class OpenRouterClient:
             str: Строка с балансом в формате '$X.XX' или 'Ошибка' при неудаче
         """
         try:
+            if validate:
+                self.validate_api_key()
             # Запрос баланса через API
             response = requests.get(
                 f"{self.base_url}/credits",  # Эндпоинт для проверки баланса

@@ -8,7 +8,7 @@ class SimpleChatApp:
         # Инициализация основных компонентов приложения
         self.api_client = OpenRouterClient()  # Клиент для API
 
-    def main(self, page: ft.Page):
+    async def main(self, page: ft.Page):
         # Настройка основных параметров страницы
         page.title = "Simple AI Chat"  # Заголовок окна
         page.vertical_alignment = ft.MainAxisAlignment.CENTER  # Вертикальное выравнивание
@@ -16,6 +16,7 @@ class SimpleChatApp:
         page.padding = 20  # Отступы страницы
         page.bgcolor = ft.Colors.GREY_900  # Цвет фона
         page.theme_mode = ft.ThemeMode.DARK  # Тёмная тема
+        await page.update_async()
 
         # Создание области истории чата
         self.chat_history = ft.Column(
@@ -41,49 +42,60 @@ class SimpleChatApp:
         )
 
         async def send_message(e):
-            # Проверка на пустое сообщение
-            if not self.message_input.value:
-                return
+            try:
+                # Проверка на пустое сообщение
+                if not self.message_input.value:
+                    return
 
-            # Получение текста сообщения и очистка поля ввода
-            user_message = self.message_input.value
-            self.message_input.value = ""
-            page.update()
+                # Получение текста сообщения и очистка поля ввода
+                user_message = self.message_input.value
+                self.message_input.value = ""
+                await page.update_async()
 
-            # Добавление сообщения пользователя в чат
-            self.chat_history.controls.append(
-                MessageBubble(message=user_message, is_user=True)
-            )
-
-            # Отображение индикатора загрузки
-            loading = ft.ProgressRing()
-            self.chat_history.controls.append(loading)
-            page.update()
-
-            # Асинхронная отправка запроса к API
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.api_client.send_message(
-                    user_message,
-                    "openai/gpt-3.5-turbo"
+                # Добавление сообщения пользователя в чат
+                self.chat_history.controls.append(
+                    MessageBubble(message=user_message, is_user=True)
                 )
-            )
 
-            # Удаление индикатора загрузки
-            self.chat_history.controls.remove(loading)
+                # Отображение индикатора загрузки
+                loading = ft.ProgressRing()
+                self.chat_history.controls.append(loading)
+                await page.update_async()
 
-            # Обработка ответа от API
-            if "error" in response:
-                response_text = f"Ошибка: {response['error']}"
-            else:
-                response_text = response["choices"][0]["message"]["content"]
+                # Асинхронная отправка запроса к API
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self.api_client.send_message(
+                        user_message,
+                        "openai/gpt-3.5-turbo"
+                    )
+                )
 
-            # Добавление ответа в чат
-            self.chat_history.controls.append(
-                MessageBubble(message=response_text, is_user=False)
-            )
-            page.update()
+                # Удаление индикатора загрузки
+                self.chat_history.controls.remove(loading)
+
+                # Обработка ответа от API
+                if "error" in response:
+                    response_text = f"Ошибка: {response['error']}"
+                else:
+                    response_text = response["choices"][0]["message"]["content"]
+
+                # Добавление ответа в чат
+                self.chat_history.controls.append(
+                    MessageBubble(message=response_text, is_user=False)
+                )
+                await page.update_async()
+                
+            except Exception as e:
+                # Показ уведомления об ошибке
+                page.show_snack_bar(
+                    ft.SnackBar(
+                        content=ft.Text(f"Ошибка: {str(e)}", color=ft.colors.RED_500),
+                        bgcolor=ft.colors.GREY_900
+                    )
+                )
+                await page.update_async()
 
         # Создание кнопки отправки сообщения
         send_button = ft.IconButton(
@@ -108,8 +120,12 @@ class SimpleChatApp:
                 bgcolor=ft.Colors.GREY_800  # Цвет фона контейнера
             )
         )
+        await page.update_async()
 
-# Точка входа в приложение
-if __name__ == "__main__":
+async def main():
+    """Точка входа в приложение"""
     app = SimpleChatApp()  # Создание экземпляра приложения
-    ft.app(target=app.main)  # Запуск приложения
+    await ft.app(target=app.main)  # Запуск приложения
+
+if __name__ == "__main__":
+    asyncio.run(main())  # Запуск приложения в асинхронном режиме
